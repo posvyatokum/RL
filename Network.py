@@ -119,7 +119,9 @@ class Network:
             self.optimize_spg = tf.train.AdamOptimizer(self.learning_rate).\
                 apply_gradients(zip(self.actor_gradients_spg, self.mu_norm_params))
             '''
-            self.optimize_spg = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss_spg)
+            self.optimizer_spg = tf.train.AdamOptimizer(self.learning_rate)
+            self.grads_spg = self.optimizer_spg.compute_gradients(self.loss_spg)
+            self.optimize_spg = self.optimizer_spg.apply_gradients(self.grads_spg)
 
         with tf.variable_scope(scope + 'Vloss'):
             self.optimizer_V = tf.train.AdamOptimizer(learning_rate=learning_rate)
@@ -127,7 +129,8 @@ class Network:
 
             self.td_error_V = tf.square(self.inputs_yV - self.V)
             self.loss_V = tf.reduce_mean(self.td_error_V)
-            self.update_model_V = self.optimizer_V.minimize(self.loss_V)
+            self.grads_V = self.optimizer_V.compute_gradients(self.loss_V)
+            self.update_model_V = self.optimizer_V.apply_gradients(self.grads_V)
 
         self.variables = tf.trainable_variables()[num_prev_params: ] 
                             
