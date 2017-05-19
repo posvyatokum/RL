@@ -18,7 +18,7 @@ def get_triu_with_exp_diag(l, a_dim):
 
 
 class Network:
-    def __init__(self, sess, state_dim, action_dim, learning_rate, num_prev_params, scope='NAF', sigma_P_dep=False, det=True):
+    def __init__(self, sess, state_dim, action_dim, learning_rate, num_prev_params, scope='NAF', sigma_P_dep=False, det=True, hn=0):
         self.sess = sess
         self.s_dim = state_dim
         self.a_dim = action_dim
@@ -31,14 +31,6 @@ class Network:
             self.inputs_u = tf.placeholder(tf.float32, shape=[None, self.a_dim])
             self.hidden1 = tf.contrib.layers.fully_connected(
                            self.inputs_x, 200, activation_fn=tf.nn.relu)
-            self.hidden2 = tf.contrib.layers.fully_connected(
-                           self.hidden1, 200, activation_fn=tf.nn.relu)
-            self.hidden3 = tf.contrib.layers.fully_connected(
-                           self.hidden2, 50, activation_fn=tf.nn.relu)
-            self.hidden5 = tf.contrib.layers.fully_connected(
-                           self.hidden3, 50, activation_fn=tf.nn.relu)
-            self.hidden6 = tf.contrib.layers.fully_connected(
-                           self.hidden5, 100, activation_fn=tf.nn.relu)
             self.hidden4 = tf.contrib.layers.fully_connected(
                            self.hidden1, 200, activation_fn=tf.nn.relu)
 
@@ -69,9 +61,16 @@ class Network:
             #TODO s_dim > 1
             if sigma_P_dep:
                 self.P_inv = tf.matrix_inverse(self.P)
-                self.sigma = tflearn.fully_connected(
-                             self.P_inv, 1)
-                self.C = self.sigma.W
+                if hn == 0:
+                    self.sigma = tflearn.fully_connected(
+                                 self.P_inv, 1)
+                    self.C = self.sigma.W
+                else: 
+                    self.hidden_sigma = tf.contrib.layers.fully_connected(
+                    self.P_inv, hn, activation_fn=tf.nn.relu)
+                    self.sigma = tf.contrib.layers.fully_connected(
+                        self.hidden_sigma, 1, activation_fn=tf.nn.relu)
+
             else:
                 self.sigma = tf.contrib.layers.fully_connected(
                              self.hidden4, 1, activation_fn=None)
@@ -120,10 +119,19 @@ class Network:
                 apply_gradients(zip(self.actor_gradients_spg, self.mu_norm_params))
             '''
             self.optimizer_spg = tf.train.AdamOptimizer(self.learning_rate)
-            self.grads_spg = self.optimizer_spg.compute_gradients(self.loss_spg)
-            self.optimize_spg = self.optimizer_spg.apply_gradients(self.grads_spg)
+            self.optimize_spg = self.optimizer_spg.minimize(self.loss_spg)
 
         with tf.variable_scope(scope + 'Vloss'):
+            self.V_sep = tf.contrib.layers.fully_connected(
+                     self.hidden4, 1, activation_fn=None)
+            self.V_sep = tf.reshape(self.V_sep, [-1, 1])
+            self.optimizer_V = tf.train.AdamOptimizer(learning_rate=learning_rate)
+            self.inputs_yV = tf.placeholder(shape=[None, 1],dtype=tf.float32)
+
+            self.td_error_V = tf.square(self.inputs_yV - self.V_sep)
+            self.loss_V = tf.reduce_mean(self.td_error_V)
+            self.update_model_V = self.optimizer_V.minimize(self.loss_V)
+            '''
             self.optimizer_V = tf.train.AdamOptimizer(learning_rate=learning_rate)
             self.inputs_yV = tf.placeholder(shape=[None, 1],dtype=tf.float32)
 
@@ -131,6 +139,7 @@ class Network:
             self.loss_V = tf.reduce_mean(self.td_error_V)
             self.grads_V = self.optimizer_V.compute_gradients(self.loss_V)
             self.update_model_V = self.optimizer_V.apply_gradients(self.grads_V)
+            '''
 
         self.variables = tf.trainable_variables()[num_prev_params: ] 
                             
@@ -146,6 +155,10 @@ class Network:
         return self.sess.run(self.V, 
                              feed_dict={self.inputs_x: inputs_x.reshape(-1, self.s_dim)})
 
+    def predict_V_sep(self, inputs_x):
+        return self.sess.run(self.V_sep, 
+                             feed_dict={self.inputs_x: inputs_x.reshape(-1, self.s_dim)})
+
     def predict_Q(self, inputs_x, inputs_u):
         return self.sess.run(self.V, 
                              feed_dict={self.inputs_x: inputs_x.reshape(-1, self.s_dim),
@@ -157,7 +170,7 @@ class Network:
                                         self.inputs_u: inputs_u.reshape(-1, self.a_dim), 
                                         self.inputs_y: inputs_y.reshape(-1, 1)})
 
-    def update_V(self, inputs_x, inputs_y):
+    def update_V_sep(self, inputs_x, inputs_y):
         return self.sess.run(self.update_model_V, 
                              feed_dict={self.inputs_x: inputs_x.reshape(-1, self.s_dim),
                                         self.inputs_yV: inputs_y.reshape(-1, 1)})
