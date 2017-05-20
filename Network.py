@@ -4,6 +4,7 @@ import numpy as np
 from tensorflow.contrib.framework import get_variables
 
 
+'''
 def get_triu_with_exp_diag(l, a_dim):
     pivot = 0
     rows = []
@@ -15,6 +16,7 @@ def get_triu_with_exp_diag(l, a_dim):
         rows.append(row)
         pivot += count
     return tf.transpose(tf.pack(rows, axis=1), (0, 2, 1))
+'''
 
 
 class Network:
@@ -52,10 +54,12 @@ class Network:
                      self.hidden4, (self.a_dim * (self.a_dim + 1)) // 2, activation_fn=None)
             self.L = tf.reshape(self.L, [-1, (self.a_dim * (self.a_dim + 1)) // 2])
 
+            '''
             self.L_triu = get_triu_with_exp_diag(self.L, self.a_dim)
 
             self.P = tf.batch_matmul(self.L_triu, tf.transpose(self.L_triu, (0, 2, 1)))
             self.P = tf.add(self.P, tf.mul(1e-9, tf.eye(self.a_dim)))
+            '''
 
         with tf.variable_scope(scope + 'mu_norm'):
             #TODO s_dim > 1
@@ -75,12 +79,15 @@ class Network:
                 self.sigma = tf.contrib.layers.fully_connected(
                              self.hidden4, 1, activation_fn=None)
             self.sigma = tf.reshape(self.sigma, [-1, 1])
+            self.sigma = tf.abs(self.sigma)
             #self.sigma = tf.pow(self.sigma, 2)
             self.pi_normal = tf.contrib.distributions.Normal(self.mu_ub, self.sigma) # * noise const
-            self.mu_norm = self.pi_normal.sample_n(1)
+            self.mu_norm = self.pi_normal.sample(1)
             self.mu_norm = tf.reshape(self.mu_norm, (-1, self.a_dim))
             self.mu_norm = tf.clip_by_value(self.mu_norm, -self.a_bound, self.a_bound)
+            self.log_prob = self.pi_normal.log_prob(self.inputs_u)
 
+        '''
         with tf.variable_scope(scope + 'A'):
             if det:
                 tmp = tf.expand_dims(self.inputs_u - self.mu_det, -1)
@@ -91,6 +98,7 @@ class Network:
 
         with tf.variable_scope(scope + 'Q'):
             self.Q = self.A + self.V
+        '''
 
         self.mu_norm_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope + 'common') +\
                               tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope + 'mu_norm') +\
@@ -100,6 +108,7 @@ class Network:
                                   tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope + 'P') 
     
             ### loss
+        '''
         with tf.variable_scope(scope + 'loss'):
             self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
             self.inputs_y = tf.placeholder(shape=[None, 1],dtype=tf.float32)
@@ -107,11 +116,15 @@ class Network:
             self.td_error = tf.square(self.inputs_y - self.Q)
             self.loss = tf.reduce_mean(self.td_error)
             self.update_model = self.optimizer.minimize(self.loss)
+        '''
 
         with tf.variable_scope(scope + 'loss_spg'):
             #TODO s_dim > 1
             self.inputs_Q = tf.placeholder(shape=[None, 1], dtype=tf.float32)
-            self.loss_spg = -tf.reduce_mean(tf.mul(self.pi_normal.log_prob(self.inputs_u), self.inputs_Q))
+            self.log_probs = -0.5 * tf.div(tf.pow(self.inputs_x - self.mu_ub, 2), tf.pow(self.sigma, 2))
+            self.log_probs = self.log_probs - tf.pow(2 * np.pi * tf.pow(self.sigma, 2), 0.5)
+
+            self.loss_spg = -tf.reduce_mean(tf.multiply(self.log_probs, self.inputs_Q))
             '''
             self.actor_gradients_spg = tf.gradients(self.loss_spg, self.mu_norm_params)
 
@@ -163,6 +176,16 @@ class Network:
         return self.sess.run(self.V, 
                              feed_dict={self.inputs_x: inputs_x.reshape(-1, self.s_dim),
                                         self.inputs_u: inputs_u.reshape(-1, self.a_dim)})
+
+    def get_log_prob(self, inputs_x, inputs_u):
+        return self.sess.run(self.log_prob,
+                             feed_dict={self.inputs_x: inputs_x.reshape(1, self.s_dim),
+                                        self.inputs_u: inputs_u.reshape(1, self.a_dim)})
+
+    def get_log_probs(self, inputs_x, inputs_u):
+        return self.sess.run(self.log_probs,
+                             feed_dict={self.inputs_x: inputs_x.reshape(-1, self.s_dim),
+                                        self.inputs_u: inputs_u.reshape(-1, self.a_dim)}) 
 
     def update_Q(self, inputs_x, inputs_u, inputs_y):
         return self.sess.run(self.update_model_V, 

@@ -43,6 +43,7 @@ class NAF:
 
         
         self.buffer = ReplayBuffer(buffer_size, random_seed)
+        self.buffer_ac = ReplayBuffer(buffer_size, random_seed)
         self.saver = tf.train.Saver()
 
         #create lists to contain total rewards and steps per episode
@@ -66,6 +67,9 @@ class NAF:
         self.calc_c = qnaf and self.dep and (not self.det) and (hn == 0)
         self.separate_V = sep_V
         self.per_st = per_st
+        self.r_xs = []
+        self.r_us = []
+        self.r_rs = []
         print("end init")
 
 
@@ -73,7 +77,7 @@ class NAF:
         self.sess.run(self.update_target_network_params)
 
     def run_n_episodes(self, num_episodes, max_ep_length,
-                       minibatch_size, explore=True, num_updates = 5, summary_checkpoint=1, eta=0.01, num_updates_ac=1): #num_updates from article
+                       minibatch_size, explore=True, num_updates = 5, summary_checkpoint=1, eta=0.01, num_updates_ac=1, T=5): #num_updates from article
         for i in range(num_episodes):
             noise = OUNoise(self.a_dim) 
             x = self.env.reset()
@@ -93,56 +97,33 @@ class NAF:
             episode_cs = []
 
             #for REINFORCE
-            r_xs = []
-            r_us = []
-            r_rs = []
-            #for j in range(max_ep_length):
-            while(True):
-                if self.det:
-                    u = self.sess.run(self.model.mu_det,
-                                      feed_dict={self.model.inputs_x: x})
-                    if self.qNAF:
-                        P, V = self.sess.run((self.model.P, self.model.V),
-                                             feed_dict={self.model.inputs_x: x})
-                        episode_Ps.append(np.linalg.norm(P))
-                        episode_Vs.append(V)
-
-                else:
-                    u = self.sess.run(self.model.mu_norm,
-                                      feed_dict={self.model.inputs_x: x})
-                    if self.qNAF:
-                        sigma, P, V = self.sess.run((self.model.sigma, self.model.P, self.model.V),
-                                             feed_dict={self.model.inputs_x: x})
-                        episode_Ps.append(np.linalg.norm(P))
-                        episode_Vs.append(V)
-                        episode_ss.append(sigma)
-                    if self.calc_c:
-                        c = self.sess.run(self.model.C,
-                                          feed_dict={self.model.inputs_x: x})
-                        episode_cs.append(c)
+            self.r_rs.append([])
+            self.r_xs.append([])
+            self.r_us.append([])
+            for j in range(max_ep_length):
+                u, sigma, V = self.sess.run((self.model.mu_norm, self.model.sigma, self.critic.V_sep),
+                                  feed_dict={self.model.inputs_x: x,
+                                             self.critic.inputs_x: x,})
+                episode_Vs.append(V)
+                episode_ss.append(sigma)
                 if explore:
                     u += noise.noise()
                     u = np.clip(u, -1.0, 1.0)
 
-                if self.qNAF:
-                    episode_Qs.append(self.target_model.predict_Q(x, u))             
-                if self.PG:
-                    episode_Q_s.append(self.critic.predict(x, u.reshape(1, -1)))
-
                 u = u.reshape(1, -1)
                 x1, r, t, info = self.env.step(u.reshape(-1))
-                r_xs.append(x)
-                r_us.append(u)
-                r_rs.append(r)
+                self.r_xs[-1].append(x)
+                self.r_us[-1].append(u)
+                self.r_rs[-1].append(r)
                 episode_reward += r
-                self.buffer.add(x.reshape(1, -1), u, r, t, x1.reshape(1, -1))
+                self.buffer_ac.add(x.reshape(1, -1), u, r, t, x1.reshape(1, -1))
                 episode_xs.append(x)
                 episode_us.append(u)
                 episode_rs.append(r)
                 #Actor-Critic
                 x = x1.reshape(1, -1)
                 
-                if self.PG or self.qNAF:
+                if self.qNAF:
                     for k in range(num_updates):
                         x_batch, u_batch, r_batch, t_batch, x1_batch = \
                             self.buffer.sample_batch(minibatch_size)
@@ -158,15 +139,47 @@ class NAF:
                 if t:
                     break
             if self.ac:
-                r_rs_ = np.array(r_rs).reshape(-1, 1)
-                r_xs_ = np.array(r_xs).reshape(-1, self.s_dim)
-                r_us_ = np.array(r_us).reshape(-1, self.a_dim)
+                r_xs_l = np.array(self.r_xs[-1]).reshape(-1, self.s_dim)
+                r_rs_l = np.array(self.r_rs[-1]).reshape(-1, 1)
+                for idx in range(2, len(r_rs_l) + 1):
+                    r_rs_l[-idx] += self.gamma * r_rs_l[-idx + 1]
+                self.r_rs[-1] = r_rs_l
+                r_rs_ = np.array(self.r_rs).reshape(-1, 1)
+                r_xs_ = np.array(self.r_xs).reshape(-1, self.s_dim)
+                r_us_ = np.array(self.r_us).reshape(-1, self.a_dim)
                 for _ in range(num_updates_ac):
-                    Q_target = r_rs_[:-1] + self.gamma * self.critic.predict_V_sep(r_xs_[1:])
-                    Q_target = np.vstack((Q_target, (r_rs_[-1])))
-                    self.model.update_mu(r_xs_, r_us_, Q_target - self.critic.predict_V_sep(r_xs_))
-                    self.model.update_V_sep(r_xs_, Q_target)
-                    self.target_model.soft_update_from(self.model)
+                    #update V every episode
+                    for __ in range(num_updates):
+                        loss = self.sess.run((self.critic.loss_V),
+                                                          feed_dict={self.critic.inputs_x: r_xs_l,
+                                                                     self.critic.inputs_yV: r_rs_l})
+                        print('loss V before update', loss)
+                        self.critic.update_V_sep(r_xs_l, r_rs_l)
+                        loss = self.sess.run((self.critic.loss_V),
+                                                          feed_dict={self.critic.inputs_x: r_xs_l,
+                                                                     self.critic.inputs_yV: r_rs_l})
+                        print('loss V after update', loss)
+                        #update pi once per T episodes
+                    if i % T == 0:
+                        #Q_target = r_rs_[:-1] + self.gamma * self.critic.predict_V_sep(r_xs_[1:])
+                        #Q_target = np.vstack((Q_target, (r_rs_[-1])))
+                        deltas = r_rs_ - self.critic.predict_V_sep(r_xs_)
+                        loss = self.sess.run((self.model.loss_spg),
+                                                              feed_dict={self.model.inputs_x: r_xs_,
+                                                                         self.model.inputs_u: r_us_,
+                                                                         self.model.inputs_Q: deltas})
+                        print('loss before update', loss)                     
+                        self.model.update_mu(r_xs_, r_us_, deltas)
+                        loss = self.sess.run((self.model.loss_spg),
+                                                              feed_dict={self.model.inputs_x: r_xs_,
+                                                                         self.model.inputs_u: r_us_,
+                                                                         self.model.inputs_Q: deltas})
+                        print('loss after update', loss)                     
+                        #self.target_model.soft_update_from(self.model)
+                        self.r_rs = []
+                        self.r_xs = []
+                        self.r_us = []
+
 
 
 

@@ -9,7 +9,7 @@ from NAF import NAF
 
 
 MAX_EP_STEPS = 200
-LEARNING_RATE = 0.0001
+LEARNING_RATE = 0.001
 GAMMA = 0.99
 TAU = 0.001
 
@@ -29,8 +29,8 @@ NOISE_VAR = 1
 OU_THETA = 0.15
 OU_MU = 0.
 OU_SIGMA = 0.3
-EXPLORATION_TIME = 200
-MAX_EPISODES = 500
+EXPLORATION_TIME = 50
+MAX_EPISODES = 200
 
 
 def main(_):
@@ -51,9 +51,9 @@ def main(_):
                      scope='qn', hn=0, ac=True,
                      sep_V=True, per_st=False)
         naf.run_n_episodes(EXPLORATION_TIME, MAX_EP_STEPS,
-                           MINIBATCH_SIZE, num_updates=5, eta=1, num_updates_ac=5)
+                           MINIBATCH_SIZE, num_updates=5, eta=1, num_updates_ac=3, T=5)
         naf.run_n_episodes(MAX_EPISODES - EXPLORATION_TIME, MAX_EP_STEPS,
-                           MINIBATCH_SIZE, False, num_updates=3, eta=1, num_updates_ac=5)
+                           MINIBATCH_SIZE, False, num_updates=5, eta=1, num_updates_ac=3, T=5)
         naf.plot_rewards(monitor_dir)
 
 if __name__ == '__main__':
