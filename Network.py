@@ -3,8 +3,6 @@ import tflearn
 import numpy as np 
 from tensorflow.contrib.framework import get_variables
 
-
-'''
 def get_triu_with_exp_diag(l, a_dim):
     pivot = 0
     rows = []
@@ -12,12 +10,10 @@ def get_triu_with_exp_diag(l, a_dim):
         count = a_dim - idx
         diag_elem = tf.exp(tf.slice(l, (0, pivot), (-1, 1)))
         non_diag_elems = tf.slice(l, (0, pivot+1), (-1, count-1))
-        row = tf.pad(tf.concat(1, (diag_elem, non_diag_elems)), ((0, 0), (idx, 0)))
+        row = tf.pad(tf.concat(axis=1, values=[diag_elem, non_diag_elems]), ((0, 0), (idx, 0)))
         rows.append(row)
         pivot += count
-    return tf.transpose(tf.pack(rows, axis=1), (0, 2, 1))
-'''
-
+    return tf.transpose(tf.stack(rows, axis=1), (0, 2, 1))
 
 class Network:
     def __init__(self, sess, state_dim, action_dim, learning_rate, num_prev_params, scope='NAF', sigma_P_dep=False, det=True, hn=0):
@@ -54,12 +50,10 @@ class Network:
                      self.hidden4, (self.a_dim * (self.a_dim + 1)) // 2, activation_fn=None)
             self.L = tf.reshape(self.L, [-1, (self.a_dim * (self.a_dim + 1)) // 2])
 
-            '''
             self.L_triu = get_triu_with_exp_diag(self.L, self.a_dim)
 
-            self.P = tf.batch_matmul(self.L_triu, tf.transpose(self.L_triu, (0, 2, 1)))
-            self.P = tf.add(self.P, tf.mul(1e-9, tf.eye(self.a_dim)))
-            '''
+            self.P = tf.matmul(self.L_triu, tf.transpose(self.L_triu, (0, 2, 1)))
+            self.P = tf.add(self.P, tf.multiply(1e-9, tf.eye(self.a_dim)))
 
         with tf.variable_scope(scope + 'mu_norm'):
             #TODO s_dim > 1
@@ -80,25 +74,22 @@ class Network:
                              self.hidden4, 1, activation_fn=None)
             self.sigma = tf.reshape(self.sigma, [-1, 1])
             self.sigma = tf.abs(self.sigma)
-            #self.sigma = tf.pow(self.sigma, 2)
             self.pi_normal = tf.contrib.distributions.Normal(self.mu_ub, self.sigma) # * noise const
             self.mu_norm = self.pi_normal.sample(1)
             self.mu_norm = tf.reshape(self.mu_norm, (-1, self.a_dim))
             self.mu_norm = tf.clip_by_value(self.mu_norm, -self.a_bound, self.a_bound)
             self.log_prob = self.pi_normal.log_prob(self.inputs_u)
 
-        '''
         with tf.variable_scope(scope + 'A'):
             if det:
                 tmp = tf.expand_dims(self.inputs_u - self.mu_det, -1)
             else:
                 tmp = tf.expand_dims(self.inputs_u - self.mu_norm, -1)
-            self.A = -tf.batch_matmul(tf.transpose(tmp, [0, 2, 1]), tf.batch_matmul(self.P, tmp))/2
+            self.A = -tf.matmul(tf.transpose(tmp, [0, 2, 1]), tf.matmul(self.P, tmp))/2
             self.A = tf.reshape(self.A, [-1, 1])
 
         with tf.variable_scope(scope + 'Q'):
             self.Q = self.A + self.V
-        '''
 
         self.mu_norm_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope + 'common') +\
                               tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope + 'mu_norm') +\
@@ -108,7 +99,6 @@ class Network:
                                   tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope + 'P') 
     
             ### loss
-        '''
         with tf.variable_scope(scope + 'loss'):
             self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
             self.inputs_y = tf.placeholder(shape=[None, 1],dtype=tf.float32)
@@ -116,7 +106,6 @@ class Network:
             self.td_error = tf.square(self.inputs_y - self.Q)
             self.loss = tf.reduce_mean(self.td_error)
             self.update_model = self.optimizer.minimize(self.loss)
-        '''
 
         with tf.variable_scope(scope + 'loss_spg'):
             #TODO s_dim > 1
@@ -125,12 +114,6 @@ class Network:
             self.log_probs = self.log_probs - tf.pow(2 * np.pi * tf.pow(self.sigma, 2), 0.5)
 
             self.loss_spg = -tf.reduce_mean(tf.multiply(self.log_probs, self.inputs_Q))
-            '''
-            self.actor_gradients_spg = tf.gradients(self.loss_spg, self.mu_norm_params)
-
-            self.optimize_spg = tf.train.AdamOptimizer(self.learning_rate).\
-                apply_gradients(zip(self.actor_gradients_spg, self.mu_norm_params))
-            '''
             self.optimizer_spg = tf.train.AdamOptimizer(self.learning_rate)
             self.optimize_spg = self.optimizer_spg.minimize(self.loss_spg)
 
@@ -144,15 +127,6 @@ class Network:
             self.td_error_V = tf.square(self.inputs_yV - self.V_sep)
             self.loss_V = tf.reduce_mean(self.td_error_V)
             self.update_model_V = self.optimizer_V.minimize(self.loss_V)
-            '''
-            self.optimizer_V = tf.train.AdamOptimizer(learning_rate=learning_rate)
-            self.inputs_yV = tf.placeholder(shape=[None, 1],dtype=tf.float32)
-
-            self.td_error_V = tf.square(self.inputs_yV - self.V)
-            self.loss_V = tf.reduce_mean(self.td_error_V)
-            self.grads_V = self.optimizer_V.compute_gradients(self.loss_V)
-            self.update_model_V = self.optimizer_V.apply_gradients(self.grads_V)
-            '''
 
         self.variables = tf.trainable_variables()[num_prev_params: ] 
                             

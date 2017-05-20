@@ -10,7 +10,8 @@ from collections import defaultdict
 
 class NAF:
     def __init__(self, sess, env, learning_rate, tau, gamma,
-                 buffer_size, random_seed, summary_dir, sigma_P_dep, det, pg, qnaf, scope, hn=0, ac=True, sep_V=True, per_st=False):
+                 buffer_size, random_seed, summary_dir, sigma_P_dep, det, qnaf, scope,
+                 hn=0, ac=True, sep_V=True,):
         self.env = env
         self.s_dim = self.env.observation_space.shape[0]
         self.a_dim = self.env.action_space.shape[0]
@@ -43,7 +44,6 @@ class NAF:
 
         
         self.buffer = ReplayBuffer(buffer_size, random_seed)
-        self.buffer_ac = ReplayBuffer(buffer_size, random_seed)
         self.saver = tf.train.Saver()
 
         #create lists to contain total rewards and steps per episode
@@ -54,19 +54,15 @@ class NAF:
         self.episodes_Ps = []
         self.episodes_Vs = []
         self.episodes_Qs = []
-        self.episodes_Q_s = []
-        self.episodes_gs = []
+        self.episodes_V_s = []
         self.episodes_ss = []
-        self.episodes_cs = []
         self.env.reset()
-        self.PG = pg
         self.qNAF = qnaf
         self.dep = sigma_P_dep
         self.reinforce = False
         self.ac = ac
         self.calc_c = qnaf and self.dep and (not self.det) and (hn == 0)
         self.separate_V = sep_V
-        self.per_st = per_st
         self.r_xs = []
         self.r_us = []
         self.r_rs = []
@@ -77,7 +73,7 @@ class NAF:
         self.sess.run(self.update_target_network_params)
 
     def run_n_episodes(self, num_episodes, max_ep_length,
-                       minibatch_size, explore=True, num_updates = 5, summary_checkpoint=1, eta=0.01, num_updates_ac=1, T=5): #num_updates from article
+                       minibatch_size, explore=True, num_updates = 5, summary_checkpoint=1, eta=0.01, num_updates_ac=1, T=1): #num_updates from article
         for i in range(num_episodes):
             noise = OUNoise(self.a_dim) 
             x = self.env.reset()
@@ -90,22 +86,28 @@ class NAF:
             episode_rs = []
             episode_Ps = []
             episode_Vs = []
+            episode_V_s = []
             episode_Qs = []
-            episode_Q_s = []
-            episode_gs = []
             episode_ss = []
-            episode_cs = []
 
             #for REINFORCE
             self.r_rs.append([])
             self.r_xs.append([])
             self.r_us.append([])
             for j in range(max_ep_length):
-                u, sigma, V = self.sess.run((self.model.mu_norm, self.model.sigma, self.critic.V_sep),
-                                  feed_dict={self.model.inputs_x: x,
-                                             self.critic.inputs_x: x,})
-                episode_Vs.append(V)
-                episode_ss.append(sigma)
+                if self.det:
+                    u, V = self.sess.run((self.model.mu_det, self.model.V),
+                                      feed_dict={self.model.inputs_x: x})
+                    episode_Vs.append(V)
+                else:
+                    u, P, sigma, V = self.sess.run((self.model.mu_norm, self.model.P, self.model.sigma, self.model.V),
+                                      feed_dict={self.model.inputs_x: x})
+                    episode_Ps.append(P)
+                    episode_ss.append(sigma)
+                    episode_Vs.append(V)
+                    if self.separate_V:
+                        episode_V_s.append(self.critic.predict_V_sep(x))
+                    
                 if explore:
                     u += noise.noise()
                     u = np.clip(u, -1.0, 1.0)
@@ -116,7 +118,7 @@ class NAF:
                 self.r_us[-1].append(u)
                 self.r_rs[-1].append(r)
                 episode_reward += r
-                self.buffer_ac.add(x.reshape(1, -1), u, r, t, x1.reshape(1, -1))
+                self.buffer.add(x.reshape(1, -1), u, r, t, x1.reshape(1, -1))
                 episode_xs.append(x)
                 episode_us.append(u)
                 episode_rs.append(r)
@@ -149,32 +151,32 @@ class NAF:
                 r_us_ = np.array(self.r_us).reshape(-1, self.a_dim)
                 for _ in range(num_updates_ac):
                     #update V every episode
-                    for __ in range(num_updates):
-                        loss = self.sess.run((self.critic.loss_V),
-                                                          feed_dict={self.critic.inputs_x: r_xs_l,
-                                                                     self.critic.inputs_yV: r_rs_l})
-                        print('loss V before update', loss)
+                    if self.separate_V:
                         self.critic.update_V_sep(r_xs_l, r_rs_l)
-                        loss = self.sess.run((self.critic.loss_V),
-                                                          feed_dict={self.critic.inputs_x: r_xs_l,
-                                                                     self.critic.inputs_yV: r_rs_l})
-                        print('loss V after update', loss)
-                        #update pi once per T episodes
                     if i % T == 0:
                         #Q_target = r_rs_[:-1] + self.gamma * self.critic.predict_V_sep(r_xs_[1:])
                         #Q_target = np.vstack((Q_target, (r_rs_[-1])))
-                        deltas = r_rs_ - self.critic.predict_V_sep(r_xs_)
+                        deltas = r_rs_
+                        if self.separate_V:
+                            deltas = deltas - self.critic.predict_V_sep(r_xs_)
+                        else:
+                            deltas = deltas - self.target_model.predict_V(r_xs_)
+                        '''
                         loss = self.sess.run((self.model.loss_spg),
                                                               feed_dict={self.model.inputs_x: r_xs_,
                                                                          self.model.inputs_u: r_us_,
                                                                          self.model.inputs_Q: deltas})
                         print('loss before update', loss)                     
+                        '''
                         self.model.update_mu(r_xs_, r_us_, deltas)
+                        self.target_model.soft_update_from(self.model)
+                        '''
                         loss = self.sess.run((self.model.loss_spg),
                                                               feed_dict={self.model.inputs_x: r_xs_,
                                                                          self.model.inputs_u: r_us_,
                                                                          self.model.inputs_Q: deltas})
                         print('loss after update', loss)                     
+                        '''
                         #self.target_model.soft_update_from(self.model)
                         self.r_rs = []
                         self.r_xs = []
@@ -190,10 +192,8 @@ class NAF:
             self.episodes_Vs.append(episode_Vs)
             self.episodes_Qs.append(episode_Qs)
             self.episodes_ss.append(episode_ss)
-            self.episodes_cs.append(episode_cs)
-            if self.PG:
-                self.episodes_Q_s.append(episode_Q_s)
-                self.episodes_gs.append(episode_gs)
+            if self.separate_V:
+                self.episodes_V_s.append(episode_Vs)
             if summary_checkpoint > 0 and i % summary_checkpoint == 0:
                 print ('| Reward: %.2i' % int(episode_reward), " | Episode", i)
                 self.plot_rewards(self.summary_dir)
@@ -208,10 +208,8 @@ class NAF:
         np.save(summary_dir + '/episodes_Ps', np.array(self.episodes_Ps))
         np.save(summary_dir + '/episodes_Vs', np.array(self.episodes_Vs))
         np.save(summary_dir + '/episodes_Qs', np.array(self.episodes_Qs))
-        np.save(summary_dir + '/episodes_Q_s', np.array(self.episodes_Q_s))
-        np.save(summary_dir + '/episodes_gs', np.array(self.episodes_gs))
+        np.save(summary_dir + '/episodes_V_s', np.array(self.episodes_V_s))
         np.save(summary_dir + '/episodes_ss', np.array(self.episodes_ss))
-        np.save(summary_dir + '/episodes_cs', np.array(self.episodes_cs))
 
         #plt.plot(np.arange(len(rewards)), rewards)
         #plt.show()
