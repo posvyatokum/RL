@@ -1,0 +1,20 @@
+MuJoCo Pro Trial license activation key, number 73116, type 6.
+
+Issued to Polina Svyatokum <pola_sv@mail.ru>.
+
+Expires June 19, 2017.
+
+This file activates MuJoCo Pro on a single computer with id:
+LINUX_82T5ONI3_CM256M3S257mL256GBLTW0WKJR25508Em273I7T169
+
+Do not modify this file. Its entire content, including the
+plain text section, is used by the activation manager.
+
+8eb5375e632ee7c14c1d4481c56fd729c8c4174f034c0b9e710e1009a0232b65
+452bede59d385351e6388424d8ca62764b8a9f1fbc50c764b7c76bad16a29342
+8f10c8318905cf9d37c3e3420398b5cf3203b40a889940afccbd0709df8cff64
+64c7334c619367b3bc1b2eeee2d373e7452313482c645925c7d907d31e382a32
+14ea59943fa8e5e114c3f62db82a8d7f6a1cd53fae02576b2d1784bd0d6ddd68
+8070f6d8b5c6e6552762078e29122f85c2f9c65085f4f1e01d6007bbc0d7a7c3
+b409fffa023c18480776960d64b90dae0ffa1f75d42719a9cf172c796f5855b3
+1ea4f22c59196aec9bb00ff57562a29163c8eab61fcf080aabeee95d61fa43b0
