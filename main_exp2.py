@@ -19,7 +19,7 @@ elif ENVNUM == 2:
     from NAF_ip import NAF
 
 TRY_NUM = 0
-NUM_UPDATES_AC = 1
+NUM_UPDATES_AC = 5
 # gaussian qnaf + pg with native V
 # directory exp1<env_num><hyper_parameter><try_num><run_num>
 

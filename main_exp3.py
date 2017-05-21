@@ -19,7 +19,7 @@ elif ENVNUM == 2:
     from NAF_ip import NAF
 
 TRY_NUM = 0
-NUM_UPDATES_AC = 1
+NUM_UPDATES_AC = 4
 # gaussian qnaf + pg with separate V
 # directory exp2<env_num><hyper_parameter><try_num><run_num>
 
@@ -31,7 +31,7 @@ TAU = 0.001
 RENDER_ENV = False
 GYM_MONITOR_EN = True
 ENV_NAME = ENVS[ENVNUM]
-MONITOR_DIR = './results/exp1' + str(ENVNUM) + str(NUM_UPDATES_AC) + str(TRY_NUM)
+MONITOR_DIR = './results/exp2' + str(ENVNUM) + str(NUM_UPDATES_AC) + str(TRY_NUM)
 
 RANDOM_SEED = 42
 BUFFER_SIZE = 800000
