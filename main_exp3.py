@@ -10,7 +10,7 @@ ENVS = ['Pendulum-v0',
         'InvertedPendulum-v1',
         'SemisuperPendulumNoise-v0',
         'SemisuperPendulumRandom-v0']
-ENVNUM = 0
+ENVNUM = 2
 if ENVNUM in (0, 3, 4):
     from NAF import NAF
 elif ENVNUM == 1:
@@ -18,8 +18,8 @@ elif ENVNUM == 1:
 elif ENVNUM == 2:
     from NAF_ip import NAF
 
-TRY_NUM = 0
-NUM_UPDATES_AC = 1
+TRY_NUM = 1
+NUM_UPDATES_AC = 5
 # gaussian qnaf + pg with separate V
 # directory exp2<env_num><hyper_parameter><try_num><run_num>
 
@@ -31,7 +31,7 @@ TAU = 0.001
 RENDER_ENV = False
 GYM_MONITOR_EN = True
 ENV_NAME = ENVS[ENVNUM]
-MONITOR_DIR = './results/exp1' + str(ENVNUM) + str(NUM_UPDATES_AC) + str(TRY_NUM)
+MONITOR_DIR = './results/exp2' + str(ENVNUM) + str(NUM_UPDATES_AC) + str(TRY_NUM)
 
 RANDOM_SEED = 42
 BUFFER_SIZE = 800000
@@ -44,6 +44,9 @@ OU_MU = 0.
 OU_SIGMA = 0.3
 EXPLORATION_TIME = 50
 MAX_EPISODES = 200
+if ENVNUM == 2:
+    EXPLORATION_TIME = 20
+    MAX_EPISODES = 4500
 
 
 def main(_):

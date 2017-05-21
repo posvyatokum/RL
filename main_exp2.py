@@ -10,7 +10,7 @@ ENVS = ['Pendulum-v0',
         'InvertedPendulum-v1',
         'SemisuperPendulumNoise-v0',
         'SemisuperPendulumRandom-v0']
-ENVNUM = 0
+ENVNUM = 2
 if ENVNUM in (0, 3, 4):
     from NAF import NAF
 elif ENVNUM == 1:
@@ -18,7 +18,7 @@ elif ENVNUM == 1:
 elif ENVNUM == 2:
     from NAF_ip import NAF
 
-TRY_NUM = 0
+TRY_NUM = 1
 NUM_UPDATES_AC = 1
 # gaussian qnaf + pg with native V
 # directory exp1<env_num><hyper_parameter><try_num><run_num>
@@ -33,7 +33,7 @@ GYM_MONITOR_EN = True
 ENV_NAME = ENVS[ENVNUM]
 MONITOR_DIR = './results/exp1' + str(ENVNUM) + str(NUM_UPDATES_AC) + str(TRY_NUM)
 
-RANDOM_SEED = 42
+RANDOM_SEED = 1234
 BUFFER_SIZE = 800000
 MINIBATCH_SIZE = 64
 
@@ -44,6 +44,10 @@ OU_MU = 0.
 OU_SIGMA = 0.3
 EXPLORATION_TIME = 50
 MAX_EPISODES = 200
+if ENVNUM == 2:
+    EXPLORATION_TIME = 500
+    MAX_EPISODES = 5000
+    
 
 
 def main(_):
@@ -58,7 +62,7 @@ def main(_):
         else:
             env = gym.wrappers.Monitor(env, MONITOR_DIR, force=False)
     with tf.Session() as sess:
-        for iteration in range(10):
+        for iteration in range(5):
             monitor_dir = MONITOR_DIR + str(iteration)
 
             naf = NAF(sess, env, LEARNING_RATE, TAU, GAMMA,
